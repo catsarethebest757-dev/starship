@@ -52,7 +52,9 @@ pub fn module<'a>(context: &'a Context) -> Option<Module<'a>> {
 
     // Attempt repository path contraction (if we are in a git repository)
     // Otherwise use the logical path, automatically contracting
-    let repo = if config.truncate_to_repo || config.repo_root_style.is_some() {
+    let highlight_repo_root =
+        config.repo_root_style.is_some() || config.before_repo_root_style.is_some();
+    let repo = if config.truncate_to_repo || highlight_repo_root {
         context.get_git_repo().ok()
     } else {
         None
@@ -116,7 +118,7 @@ pub fn module<'a>(context: &'a Context) -> Option<Module<'a>> {
     // a prefix with it, so it has no contracted form and is not split.
     let split_at_repo_root = repo
         .and_then(|r| r.workdir.as_ref())
-        .filter(|_| config.repo_root_style.is_some())
+        .filter(|_| highlight_repo_root)
         .and_then(|repo_root| contract_repo_path(display_dir, repo_root))
         .and_then(|contracted_path| {
             let repo_path_vec: Vec<&str> = contracted_path.split('/').collect();
@@ -1830,6 +1832,36 @@ mod tests {
             convert_path_sep("…/above/"),
             Color::Green.prefix(),
             Color::Cyan.bold().paint(convert_path_sep("/src/sub/path"))
+        ));
+        assert_eq!(expected, actual);
+        tmp_dir.close()
+    }
+
+    #[test]
+    fn highlight_git_root_dir_only_before_root_style() -> io::Result<()> {
+        let (tmp_dir, _) = make_known_tempdir(Path::new("/tmp"))?;
+        let repo_dir = tmp_dir.path().join("above").join("repo");
+        let dir = repo_dir.join("src/sub/path");
+        fs::create_dir_all(&dir)?;
+        init_repo(&repo_dir).unwrap();
+
+        let actual = ModuleRenderer::new("directory")
+            .config(toml::toml! {
+                [directory]
+                truncation_length = 5
+                truncation_symbol = "…/"
+                truncate_to_repo = false
+                before_repo_root_style = "blue"
+            })
+            .path(dir)
+            .collect();
+        let expected = Some(format!(
+            "{}{}{} ",
+            Color::Blue.prefix(),
+            convert_path_sep("…/above/"),
+            Color::Cyan
+                .bold()
+                .paint(convert_path_sep("repo/src/sub/path"))
         ));
         assert_eq!(expected, actual);
         tmp_dir.close()
